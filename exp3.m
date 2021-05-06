@@ -1,0 +1,86 @@
+% Code used for all plots ? it seems so...
+
+clear;
+close all;
+home;
+
+% Metadata
+K = 100;    % Number of arms
+N = 1e4;   % Time horizon
+Nexp = 1; % Number of experiments to compute a variance estimator
+sigma = .1;  % Standard deviation of noise
+lambda = 1; % Prior standard deviation of mean rewards
+L = 2*K+1;    % length of the input for power iterations
+
+J = sqrt(-1); 
+
+% Filter properties
+% Filter 1: One maximum.
+r = 0.95;
+w0 = 75/100*pi;
+a = [1 -2*r*cos(w0) r^2];
+b = 1-r;
+% Filter 2: Several maxima.
+load('Num.mat');        % Filter coefficients (via fdatool)
+a = [1 zeros(1,length(Num)-1)];
+b = Num;
+% Filter gains
+G = freqz(b,a,K+1);
+Nplot = 1000;
+[aGplot,w] = freqz(b,a,Nplot);
+Gplot = abs(aGplot);
+
+% True mean reward distribution
+G = G(2:end);    % drop G at w = 0
+mu_re = real(G);
+mu_im = imag(G);
+[maxmu, index_maxmu] = max(abs(G));
+beta = maxmu;
+
+p = zeros(N,K);
+X = zeros(N,K);
+R = zeros(N,1);
+p(1,:) = ones(1,K)/K;
+u = real(ifft([0, p(1,:), flip(p(1,:))]'));
+
+%%
+% Game
+tic
+figure
+for i = 1:N
+    % Perform an experiment
+    y = filter(b,a,u) + sigma*randn(L,1);
+    Y = fft(y);
+    Y = Y(2:K+1);
+    U = fft(u);
+    U = U(2:K+1);
+    
+    % Reward generation
+    X(i,:) = Y./U;
+    
+    % Expected Cumulative Regret computation
+    R(i) = R(max(i-1,1)) + maxmu^2 - sum(p(i,:)*(abs(G).^2));
+    
+    % Update p
+    eta = 0.001/sqrt(i);
+    if i < N
+        for k = 1:K
+            p(i+1,k) = exp(eta*sum(p(1:i,k).*(abs(X(1:i,k)).^2)));
+        end
+        p(i+1,:) = p(i+1,:)/sum(p(i+1,:));
+
+    
+    % Update u
+    u = real(ifft([0, p(i+1,:), flip(p(i+1,:))]'));
+    end
+    
+    %   Comment this to get the result faster.
+%      rplot(K,Gplot, p, index_maxmu, i);
+end
+toc
+
+%% plot PI regret
+
+figure
+plot(R);
+title('PI regret');
